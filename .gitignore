@@ -1,5 +1,10 @@
+# Python cache
 __pycache__/
 
+# IDE configuration
+.vscode/
+
+# Generated keys and Secure Boot secrets
 custom_config/*
 firmware_config/*
 signed_config/*

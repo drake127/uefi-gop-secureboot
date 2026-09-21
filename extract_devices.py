@@ -3,13 +3,14 @@
 
 import argparse
 import logging
+import os
 import re
 import shutil
 import subprocess
 import yaml
 
 from pathlib import Path
-from generate import hash_to_efi_sig_list, get_or_create_guid, OUTPUT_DIR, EFI_IMAGE_SECURITY_DATABASE_GUID
+from generate_keys import hash_to_efi_sig_list, get_or_create_guid, OUTPUT_DIR, EFI_IMAGE_SECURITY_DATABASE_GUID
 
 
 FIRMWARE_DIR = Path("firmware_config")

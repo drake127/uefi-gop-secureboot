@@ -115,7 +115,7 @@ def write_private_key(path: Path, private_key: rsa.RSAPrivateKey) -> None:
 
 def generate_key_and_cert(
     key_type: str,
-    cn_prefix: str = "drake127's SecureBoot",
+    cn_prefix: str,
     days: int = DEFAULT_VALIDITY_DAYS,
 ) -> tuple[rsa.RSAPrivateKey, x509.Certificate]:
     """Generate a new 2048-bit RSA private key and self-signed X.509 certificate."""
@@ -157,8 +157,8 @@ def get_or_create_guid(guid_file: Path) -> uuid.UUID:
 
 
 def generate_keys(
+    cn_prefix: str,
     output_dir: Path = OUTPUT_DIR,
-    cn_prefix: str = "drake127's SecureBoot",
     days: int = DEFAULT_VALIDITY_DAYS,
 ) -> None:
     """Idempotently generate Secure Boot keys, certificates, and EFI signature lists."""
@@ -191,7 +191,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate Secure Boot keys, certificates, and EFI signature lists.")
     parser.add_argument(
         "--cn-prefix",
-        default="drake127's SecureBoot",
+        default="SecureBoot",
         help="Common Name prefix for generated certificates (default: %(default)s)",
     )
     parser.add_argument(
