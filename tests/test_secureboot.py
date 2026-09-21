@@ -11,11 +11,11 @@ from secureboot import (
     action_extract_devices,
     action_sign_variables,
     build_efi_sig_list,
-    cert_to_efi_sig_list,
     hash_to_efi_sig_list,
     read_tpm2_eventlog,
     extract_pcr2_driver_events,
     get_pe_authenticode_hash,
+    decode_efi_device_path,
 )
 from tests.generate_fixture_eventlog import build_dynamic_mock_eventlog, create_minimal_pe
 
@@ -113,6 +113,19 @@ def test_hash_to_efi_sig_list_format():
     assert parsed[0][0] == EFI_CERT_SHA256_GUID
     assert parsed[0][1] == owner
     assert parsed[0][2] == bytes.fromhex(sample_hash)
+
+
+def test_decode_efi_device_path():
+    # Text path is passed through unmodified
+    assert decode_efi_device_path("PciRoot(0x0)/Pci(0x1,0x0)") == "PciRoot(0x0)/Pci(0x1,0x0)"
+    # Binary hex representation is decoded into standard string
+    hex_dev1 = "02010c00d041030a000000000101060000017fff0400"
+    assert decode_efi_device_path(hex_dev1) == "PciRoot(0x0)/Pci(0x1,0x0)"
+    hex_dev2 = "02010c00d041030a000000000101060000027fff0400"
+    assert decode_efi_device_path(hex_dev2) == "PciRoot(0x0)/Pci(0x2,0x0)"
+    # Empty or non-hex string passthrough
+    assert decode_efi_device_path("") == ""
+    assert decode_efi_device_path("not_hex") == "not_hex"
 
 
 def test_extract_mock_eventlog(dynamic_fixtures):

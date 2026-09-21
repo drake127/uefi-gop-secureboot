@@ -85,7 +85,7 @@ Instead of trusting the broad Microsoft CA, UEFI allows whitelisting the **exact
   * `argcomplete` (optional, for CLI tab-completion)
 * **System packages**:
   * `tpm2-tools` (provides `tpm2_eventlog`)
-  * `efitools` (provides `sign-efi-sig-list`, `hash-to-efi-sig-list`, `sig-list-to-certs`)
+  * `efitools` (provides `sign-efi-sig-list`, `sig-list-to-certs`)
   * `pesign` (provides Authenticode PE hashing `pesign -h -i`)
   * `cmake`, `make`, `gcc` (to compile the `tools/UEFIRomExtract` submodule)
 
@@ -195,9 +195,11 @@ For detailed step-by-step instructions on putting your firmware into Setup Mode 
 ├── custom_config/         # Generated private keys, certificates, base ESLs (ignored by git)
 ├── firmware_config/       # Device GOP binaries, ROM dumps, SHA256 ESLs (ignored by git)
 ├── signed_config/         # Merged db.esl and signed .auth updates (ignored by git)
+├── tests/                 # Automated test suite and dynamic TPM2 fixture generator
 ├── tools/
 │   └── UEFIRomExtract/    # Git submodule: PCI expansion ROM extractor
 ├── Makefile               # Convenience Makefile for building tools and running actions
+├── pytest.ini             # Pytest configuration
 ├── secureboot.py          # Unified CLI toolkit (generate-keys, extract-devices, sign-variables)
 ├── .gitmodules            # Submodule configuration
 ├── requirements.txt       # Python dependencies

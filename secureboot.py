@@ -73,6 +73,59 @@ def cert_to_efi_sig_list(cert: x509.Certificate | bytes, owner_guid: uuid.UUID) 
     return build_efi_sig_list(EFI_CERT_X509_GUID, [(owner_guid, cert_der)])
 
 
+def get_pe_authenticode_hash(efi_path: Path) -> str:
+    """Calculate Authenticode SHA-256 hash using pesign -h -i."""
+    if not shutil.which("pesign"):
+        raise RuntimeError("'pesign' tool not found in PATH")
+
+    res = subprocess.run(["pesign", "-h", "-i", str(efi_path)], capture_output=True, text=True, check=True)
+    match = re.search(r"^([0-9a-fA-F]{64})", res.stdout.strip())
+    if not match:
+        raise ValueError(f"Could not parse pesign output: {res.stdout}")
+    return match.group(1).lower()
+
+
+def decode_efi_device_path(raw_path: str) -> str:
+    """Decode a hex-encoded UEFI binary device path into standard textual representation if needed."""
+    if not raw_path or not isinstance(raw_path, str):
+        return ""
+    if "Pci" in raw_path or "/" in raw_path or not all(c in "0123456789abcdefABCDEF" for c in raw_path.strip()):
+        return raw_path
+
+    clean_hex = raw_path.strip()
+    if len(clean_hex) < 8 or len(clean_hex) % 2 != 0:
+        return raw_path
+
+    try:
+        data = bytes.fromhex(clean_hex)
+    except ValueError:
+        return raw_path
+
+    nodes: list[str] = []
+    idx = 0
+    while idx + 4 <= len(data):
+        dp_type = data[idx]
+        dp_subtype = data[idx + 1]
+        dp_len = struct.unpack_from("<H", data, idx + 2)[0]
+        if dp_len < 4 or idx + dp_len > len(data):
+            break
+        payload = data[idx + 4 : idx + dp_len]
+        if dp_type == 0x7F:
+            break
+        if dp_type == 0x02 and dp_subtype == 0x01 and len(payload) >= 8:
+            hid, uid = struct.unpack_from("<II", payload, 0)
+            if hid in (0x0A0341D0, 0x0A0841D0):
+                nodes.append(f"PciRoot({hex(uid)})")
+            else:
+                nodes.append(f"Acpi(0x{hid:08x},{hex(uid)})")
+        elif dp_type == 0x01 and dp_subtype == 0x01 and len(payload) >= 2:
+            pci_fn, pci_dev = payload[0], payload[1]
+            nodes.append(f"Pci({hex(pci_dev)},{hex(pci_fn)})")
+        idx += dp_len
+
+    return "/".join(nodes) if nodes else raw_path
+
+
 def hash_to_efi_sig_list(
     hashes: bytes | str | Path | Sequence[bytes | str | Path],
     owner_guid: uuid.UUID = EFI_IMAGE_SECURITY_DATABASE_GUID,
@@ -86,12 +139,8 @@ def hash_to_efi_sig_list(
     digests: list[bytes] = []
     for item in items:
         if isinstance(item, Path) or (isinstance(item, str) and Path(item).is_file()):
-            cmd = ["hash-to-efi-sig-list", str(item), "/dev/null"]
-            res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            match = re.search(r"HASH IS ([0-9a-fA-F]{64})", res.stdout)
-            if not match:
-                raise ValueError(f"Could not extract hash from hash-to-efi-sig-list for {item}")
-            digests.append(bytes.fromhex(match.group(1)))
+            digest_hex = get_pe_authenticode_hash(Path(item))
+            digests.append(bytes.fromhex(digest_hex))
         elif isinstance(item, str):
             if len(item) == 64:
                 digests.append(bytes.fromhex(item))
@@ -251,7 +300,8 @@ def extract_pcr2_driver_events(events: list[dict]) -> list[dict]:
             continue
 
         event_data = ev.get("Event", {})
-        device_path = event_data.get("DevicePath", "") if isinstance(event_data, dict) else ""
+        raw_device_path = event_data.get("DevicePath", "") if isinstance(event_data, dict) else ""
+        device_path = decode_efi_device_path(raw_device_path)
 
         extracted.append({
             "event_num": ev.get("EventNum"),
@@ -343,18 +393,6 @@ def extract_gop_with_uefiextract(rom_path: Path, efi_path: Path) -> bool:
 
     logging.debug("UEFIRomExtract output:\n%s", res.stdout.strip())
     return efi_path.is_file() and efi_path.stat().st_size > 0
-
-
-def get_pe_authenticode_hash(efi_path: Path) -> str:
-    """Calculate Authenticode SHA-256 hash using pesign -h -i."""
-    if not shutil.which("pesign"):
-        raise RuntimeError("'pesign' tool not found in PATH")
-
-    res = subprocess.run(["pesign", "-h", "-i", str(efi_path)], capture_output=True, text=True, check=True)
-    match = re.search(r"^([0-9a-fA-F]{64})", res.stdout.strip())
-    if not match:
-        raise ValueError(f"Could not parse pesign output: {res.stdout}")
-    return match.group(1).lower()
 
 
 def action_extract_devices(
