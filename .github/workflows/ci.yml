@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ efitools pesign tpm2-tools
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Build tools (UEFIRomExtract)
+        run: make build-tools
+
+      - name: Run test suite
+        run: make test
+
+      - name: Test CLI help and actions
+        run: |
+          ./secureboot.py --help
+          ./secureboot.py generate-keys --help
+          ./secureboot.py extract-devices --help
+          ./secureboot.py sign-variables --help

@@ -1,6 +1,9 @@
 # Custom UEFI Secure Boot with Hardware Option ROM (GOP) Whitelisting
 
-A set of scripts to configure a custom UEFI Secure Boot key hierarchy (`PK`, `KEK`, `db`, `dbx`) without enrolling or trusting the default Microsoft Third-Party UEFI Certificate Authority.
+[![CI](https://github.com/drake127/uefi-gop-secureboot/actions/workflows/ci.yml/badge.svg)](https://github.com/drake127/uefi-gop-secureboot/actions/workflows/ci.yml)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+
+A unified toolkit to configure a custom UEFI Secure Boot key hierarchy (`PK`, `KEK`, `db`, `dbx`) without enrolling or trusting the default Microsoft Third-Party UEFI Certificate Authority.
 
 ---
 
@@ -46,7 +49,7 @@ Instead of trusting the broad Microsoft CA, UEFI allows whitelisting the **exact
                                            │
                                            ▼
 ┌───────────────────────────────────────────────────────────────────────────────────┐
-│ extract_devices.py                                                                │
+│ ./secureboot.py extract-devices (or make extract-devices)                         │
 │                                                                                   │
 │  1. Parses /sys/kernel/security/tpm0/binary_bios_measurements via tpm2_eventlog   │
 │  2. Extracts SHA-256 digest of EV_EFI_BOOT_SERVICES_DRIVER events in PCR 2        │
@@ -59,7 +62,7 @@ Instead of trusting the broad Microsoft CA, UEFI allows whitelisting the **exact
                                            │
                                            ▼
 ┌───────────────────────────────────────────────────────────────────────────────────┐
-│ sign_esl.py                                                                       │
+│ ./secureboot.py sign-variables (or make sign-variables)                           │
 │                                                                                   │
 │  1. Merges custom_config/db.esl + firmware_config/*.esl -> signed_config/db.esl   │
 │  2. Symlinks PK.esl, KEK.esl, dbx.esl into signed_config/                         │
@@ -92,24 +95,24 @@ Instead of trusting the broad Microsoft CA, UEFI allows whitelisting the **exact
 
 ### 1. Clone Repository & Build Submodule
 ```bash
-git clone --recurse-submodules https://github.com/drake127/secureboot.git
-cd secureboot
-cmake -B tools/UEFIRomExtract/build tools/UEFIRomExtract
-cmake --build tools/UEFIRomExtract/build
+git clone --recurse-submodules https://github.com/drake127/uefi-gop-secureboot.git
+cd uefi-gop-secureboot
+make build-tools
 ```
 
 ---
 
 ### 2. Generate Custom Keys
-Run [generate_keys.py](file:///home/drake127/Projects/gentoo/secureboot/generate_keys.py) to create RSA-2048 private keys, self-signed X.509 certificates, and initial `.esl` files in `custom_config/`:
+Run `./secureboot.py generate-keys` (or `make generate-keys`) to create RSA-2048 private keys, self-signed X.509 certificates, and initial `.esl` files in `custom_config/`:
 
 ```bash
-./generate_keys.py
+./secureboot.py generate-keys
+# or: make generate-keys
 ```
 
 Optional arguments:
 * `--cn-prefix`: Prefix for the certificate Common Name (default: `"SecureBoot"`).
-* `--days`: Validity period in days (default: 20 years).
+* `--days`: Validity period in days (default: 20 years / 7300 days).
 
 Output files in `custom_config/`:
 * `uuid.txt` (Owner GUID)
@@ -124,11 +127,15 @@ Output files in `custom_config/`:
 ---
 
 ### 3. Extract and Verify Hardware Option ROMs
-Run [extract_devices.py](file:///home/drake127/Projects/gentoo/secureboot/extract_devices.py) as a regular user (it calls `sudo` internally when privileged access to securityfs and sysfs ROM files is needed):
+Run `./secureboot.py extract-devices` (or `make extract-devices`) as a regular user (it calls `sudo` internally when privileged access to securityfs and sysfs ROM files is needed):
 
 ```bash
-./extract_devices.py
+./secureboot.py extract-devices
+# or: make extract-devices
 ```
+
+Optional arguments:
+* `--eventlog`: Path to TPM2 binary eventlog (default: `/sys/kernel/security/tpm0/binary_bios_measurements`).
 
 #### Why check both TPM event log and PCI ROM?
 The script performs a dual-verification pass:
@@ -147,10 +154,11 @@ Generated files in `firmware_config/`:
 ---
 
 ### 4. Merge and Sign Variable Updates
-Run [sign_esl.py](file:///home/drake127/Projects/gentoo/secureboot/sign_esl.py):
+Run `./secureboot.py sign-variables` (or `make sign-variables`):
 
 ```bash
-./sign_esl.py
+./secureboot.py sign-variables
+# or: make sign-variables
 ```
 
 This step:
@@ -189,9 +197,8 @@ For detailed step-by-step instructions on putting your firmware into Setup Mode 
 ├── signed_config/         # Merged db.esl and signed .auth updates (ignored by git)
 ├── tools/
 │   └── UEFIRomExtract/    # Git submodule: PCI expansion ROM extractor
-├── extract_devices.py     # TPM2 eventlog parser & ROM verification script
-├── generate_keys.py       # Key and certificate generation script
-├── sign_esl.py            # ESL merger & authentication update signer
+├── Makefile               # Convenience Makefile for building tools and running actions
+├── secureboot.py          # Unified CLI toolkit (generate-keys, extract-devices, sign-variables)
 ├── .gitmodules            # Submodule configuration
 ├── requirements.txt       # Python dependencies
 └── LICENSE                # GNU General Public License v3.0
