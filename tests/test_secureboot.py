@@ -12,8 +12,8 @@ from secureboot import (
     action_sign_variables,
     build_efi_sig_list,
     hash_to_efi_sig_list,
-    read_tpm2_eventlog,
-    extract_pcr2_driver_events,
+    read_tpm2_pcr2_driver_events,
+    parse_tpm2_pcr2_driver_events,
     get_pe_authenticode_hash,
     decode_efi_device_path,
 )
@@ -132,16 +132,21 @@ def test_extract_mock_eventlog(dynamic_fixtures):
     log_path = dynamic_fixtures["log_path"]
     drivers = dynamic_fixtures["drivers"]
 
-    events = read_tpm2_eventlog(log_path)
-    assert len(events) >= 3
-
-    pcr2_events = extract_pcr2_driver_events(events)
-    # Event 3 is EV_SEPARATOR, so only the 2 GOP driver events should be extracted
+    pcr2_events = read_tpm2_pcr2_driver_events(log_path)
+    # The fixture contains 2 GOP driver events and 1 EV_SEPARATOR.
+    # Only the 2 GOP driver events should be extracted.
     assert len(pcr2_events) == 2
     assert pcr2_events[0]["sha256"] == drivers[0]["hash"]
     assert pcr2_events[1]["sha256"] == drivers[1]["hash"]
     assert "Pci(0x1,0x0)" in pcr2_events[0]["device_path"]
     assert "Pci(0x2,0x0)" in pcr2_events[1]["device_path"]
+
+
+def test_parse_tpm2_pcr2_edge_cases():
+    # Truncated or empty data returns empty list gracefully
+    assert parse_tpm2_pcr2_driver_events(b"") == []
+    assert parse_tpm2_pcr2_driver_events(b"\x00" * 20) == []
+    assert parse_tpm2_pcr2_driver_events(b"\x00" * 32) == []
 
 
 def test_full_pipeline_multi_gop(tmp_path: Path, dynamic_fixtures):

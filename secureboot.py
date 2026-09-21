@@ -11,7 +11,6 @@ import struct
 import subprocess
 import sys
 import uuid
-import yaml
 
 from collections.abc import Sequence
 from cryptography import x509
@@ -62,14 +61,12 @@ def cert_to_efi_sig_list(cert: x509.Certificate | bytes, owner_guid: uuid.UUID) 
     if isinstance(cert, x509.Certificate):
         cert_der = cert.public_bytes(serialization.Encoding.DER)
     elif isinstance(cert, bytes):
-        if b"-----BEGIN" in cert:
-            cert_obj = x509.load_pem_x509_certificate(cert)
-            cert_der = cert_obj.public_bytes(serialization.Encoding.DER)
-        else:
-            cert_der = cert
+        cert_der = (
+            x509.load_pem_x509_certificate(cert).public_bytes(serialization.Encoding.DER)
+            if b"-----BEGIN" in cert else cert
+        )
     else:
         raise TypeError(f"Unsupported certificate type: {type(cert)}")
-
     return build_efi_sig_list(EFI_CERT_X509_GUID, [(owner_guid, cert_der)])
 
 
@@ -85,45 +82,37 @@ def get_pe_authenticode_hash(efi_path: Path) -> str:
     return match.group(1).lower()
 
 
-def decode_efi_device_path(raw_path: str) -> str:
-    """Decode a hex-encoded UEFI binary device path into standard textual representation if needed."""
-    if not raw_path or not isinstance(raw_path, str):
-        return ""
-    if "Pci" in raw_path or "/" in raw_path or not all(c in "0123456789abcdefABCDEF" for c in raw_path.strip()):
-        return raw_path
-
-    clean_hex = raw_path.strip()
-    if len(clean_hex) < 8 or len(clean_hex) % 2 != 0:
-        return raw_path
-
-    try:
-        data = bytes.fromhex(clean_hex)
-    except ValueError:
-        return raw_path
+def decode_efi_device_path(raw_path: bytes | str) -> str:
+    """Decode a UEFI binary device path (bytes or hex string) into standard textual representation."""
+    if isinstance(raw_path, (bytes, bytearray)):
+        data = bytes(raw_path)
+    elif isinstance(raw_path, str) and not ("Pci" in raw_path or "/" in raw_path):
+        try:
+            data = bytes.fromhex(raw_path.strip())
+        except ValueError:
+            return raw_path
+    else:
+        return str(raw_path) if raw_path else ""
 
     nodes: list[str] = []
     idx = 0
     while idx + 4 <= len(data):
-        dp_type = data[idx]
-        dp_subtype = data[idx + 1]
+        dp_type, dp_subtype = data[idx], data[idx + 1]
         dp_len = struct.unpack_from("<H", data, idx + 2)[0]
-        if dp_len < 4 or idx + dp_len > len(data):
+        if dp_len < 4 or idx + dp_len > len(data) or dp_type == 0x7F:
             break
         payload = data[idx + 4 : idx + dp_len]
-        if dp_type == 0x7F:
-            break
         if dp_type == 0x02 and dp_subtype == 0x01 and len(payload) >= 8:
             hid, uid = struct.unpack_from("<II", payload, 0)
-            if hid in (0x0A0341D0, 0x0A0841D0):
-                nodes.append(f"PciRoot({hex(uid)})")
-            else:
-                nodes.append(f"Acpi(0x{hid:08x},{hex(uid)})")
+            nodes.append(f"PciRoot({hex(uid)})" if hid in (0x0A0341D0, 0x0A0841D0) else f"Acpi(0x{hid:08x},{hex(uid)})")
         elif dp_type == 0x01 and dp_subtype == 0x01 and len(payload) >= 2:
-            pci_fn, pci_dev = payload[0], payload[1]
-            nodes.append(f"Pci({hex(pci_dev)},{hex(pci_fn)})")
+            nodes.append(f"Pci({hex(payload[1])},{hex(payload[0])})")
+        elif dp_type == 0x04 and dp_subtype == 0x08 and len(payload) >= 20:
+            start, end = struct.unpack_from("<QQ", payload, 4)
+            nodes.append(f"Offset({hex(start)},{hex(end)})")
         idx += dp_len
 
-    return "/".join(nodes) if nodes else raw_path
+    return "/".join(nodes) if nodes else (raw_path if isinstance(raw_path, str) else "")
 
 
 def hash_to_efi_sig_list(
@@ -131,33 +120,22 @@ def hash_to_efi_sig_list(
     owner_guid: uuid.UUID = EFI_IMAGE_SECURITY_DATABASE_GUID,
 ) -> bytes:
     """Convert one or more SHA256 hashes (or EFI binary paths) to an EFI Signature List."""
-    if isinstance(hashes, (bytes, str, Path)):
-        items: Sequence[bytes | str | Path] = [hashes]
-    else:
-        items = list(hashes)
-
+    items = [hashes] if isinstance(hashes, (bytes, str, Path)) else list(hashes)
     digests: list[bytes] = []
-    for item in items:
-        if isinstance(item, Path) or (isinstance(item, str) and Path(item).is_file()):
-            digest_hex = get_pe_authenticode_hash(Path(item))
-            digests.append(bytes.fromhex(digest_hex))
-        elif isinstance(item, str):
-            if len(item) == 64:
-                digests.append(bytes.fromhex(item))
-            else:
-                raise ValueError(f"Expected 64-char hex SHA256 string, got: {item}")
-        elif isinstance(item, bytes):
-            if len(item) == 32:
-                digests.append(item)
-            elif len(item) == 64:
-                digests.append(bytes.fromhex(item.decode("ascii")))
-            else:
-                raise ValueError(f"Expected 32-byte digest or 64-byte hex digest, got {len(item)} bytes")
-        else:
-            raise TypeError(f"Unsupported hash item type: {type(item)}")
 
-    signatures = [(owner_guid, digest) for digest in digests]
-    return build_efi_sig_list(EFI_CERT_SHA256_GUID, signatures)
+    for item in items:
+        if isinstance(item, Path) or (isinstance(item, str) and len(item) != 64 and Path(item).is_file()):
+            item = get_pe_authenticode_hash(Path(item))
+        if isinstance(item, str) and len(item) == 64:
+            digests.append(bytes.fromhex(item))
+        elif isinstance(item, bytes) and len(item) == 32:
+            digests.append(item)
+        elif isinstance(item, bytes) and len(item) == 64:
+            digests.append(bytes.fromhex(item.decode("ascii")))
+        else:
+            raise ValueError(f"Invalid SHA256 hash or binary path: {item!r}")
+
+    return build_efi_sig_list(EFI_CERT_SHA256_GUID, [(owner_guid, d) for d in digests])
 
 
 def write_private_key(path: Path, private_key: rsa.RSAPrivateKey) -> None:
@@ -263,54 +241,75 @@ def action_generate_keys(cn_prefix: str, days: int = DEFAULT_VALIDITY_DAYS, outp
 # 3. Action: extract-devices
 # =====================================================================
 
-def read_tpm2_eventlog(eventlog_path: Path = DEFAULT_EVENTLOG_PATH) -> list[dict]:
-    """Read and parse TPM2 eventlog YAML via tpm2_eventlog."""
-    if not shutil.which("tpm2_eventlog"):
-        raise RuntimeError("'tpm2_eventlog' tool not found in PATH")
+def read_eventlog_bytes(eventlog_path: Path = DEFAULT_EVENTLOG_PATH) -> bytes:
+    """Read binary TPM2 eventlog bytes, falling back to 'sudo cat' if unreadable directly."""
+    if not eventlog_path.is_file():
+        raise FileNotFoundError(f"TPM2 eventlog not found: {eventlog_path}")
 
-    logging.info("Reading TPM2 eventlog from %s", eventlog_path)
-    cmd = ["tpm2_eventlog", str(eventlog_path)]
-    if not os.access(eventlog_path, os.R_OK):
-        cmd = ["sudo"] + cmd
-    res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    data = yaml.safe_load(res.stdout)
-    return data.get("events", []) if isinstance(data, dict) else []
+    try:
+        return eventlog_path.read_bytes()
+    except PermissionError:
+        logging.info("Permission denied reading %s directly, falling back to 'sudo cat'", eventlog_path)
+        res = subprocess.run(["sudo", "cat", str(eventlog_path)], capture_output=True, check=True)
+        return res.stdout
 
 
-def extract_pcr2_driver_events(events: list[dict]) -> list[dict]:
-    """Filter PCR 2 driver events and extract their SHA256 digest and device path."""
-    extracted = []
-    for ev in events:
-        if ev.get("PCRIndex") != 2:
-            continue
+def parse_tpm2_pcr2_driver_events(data: bytes) -> list[dict]:
+    """Parse TCG TPM 2.0 binary event log stream, extracting PCR 2 driver events."""
+    if len(data) < 32:
+        return []
+    event_size = struct.unpack_from("<I", data, 28)[0]
+    spec_data = data[32 : 32 + event_size]
+    offset = 32 + event_size
 
-        event_type = ev.get("EventType", "")
-        if event_type not in ("EV_EFI_BOOT_SERVICES_DRIVER", "EV_EFI_RUNTIME_SERVICES_DRIVER"):
-            logging.debug("Skipping PCR 2 event with EventType: %s (EventNum %s)", event_type, ev.get("EventNum"))
-            continue
+    num_algos = struct.unpack_from("<I", spec_data, 24)[0] if len(spec_data) >= 28 else 0
+    algo_sizes = {0x0004: 20, 0x000B: 32, 0x000C: 48, 0x000D: 64, 0x0012: 32}
+    algo_sizes.update(
+        struct.unpack_from("<HH", spec_data, 28 + i * 4)
+        for i in range(num_algos) if 28 + (i + 1) * 4 <= len(spec_data)
+    )
 
-        sha256_digest = None
-        for d in ev.get("Digests", []):
-            if d.get("AlgorithmId", "").lower() in ("sha256", "sha-256"):
-                sha256_digest = d.get("Digest")
+    extracted, event_num = [], 0
+    while offset + 12 <= len(data):
+        event_num += 1
+        pcr_index, event_type, digest_count = struct.unpack_from("<III", data, offset)
+        offset += 12
+
+        digests: dict[int, str] = {}
+        for _ in range(digest_count):
+            if offset + 2 > len(data):
                 break
+            algo_id = struct.unpack_from("<H", data, offset)[0]
+            dig_size = algo_sizes.get(algo_id, 32)
+            digests[algo_id] = data[offset + 2 : offset + 2 + dig_size].hex()
+            offset += 2 + dig_size
 
-        if not sha256_digest:
-            logging.warning("No SHA-256 digest found for PCR 2 event %s", ev.get("EventNum"))
-            continue
+        if offset + 4 > len(data):
+            break
+        event_size = struct.unpack_from("<I", data, offset)[0]
+        offset += 4
+        ev_data = data[offset : offset + event_size]
+        offset += event_size
 
-        event_data = ev.get("Event", {})
-        raw_device_path = event_data.get("DevicePath", "") if isinstance(event_data, dict) else ""
-        device_path = decode_efi_device_path(raw_device_path)
+        if pcr_index == 2 and event_type in (0x80000004, 0x80000005) and 0x000B in digests:
+            dplen = struct.unpack_from("<Q", ev_data, 24)[0] if len(ev_data) >= 32 else 0
+            extracted.append({
+                "event_num": event_num,
+                "event_type": (
+                    "EV_EFI_BOOT_SERVICES_DRIVER" if event_type == 0x80000004 else "EV_EFI_RUNTIME_SERVICES_DRIVER"
+                ),
+                "sha256": digests[0x000B],
+                "device_path": decode_efi_device_path(ev_data[32 : 32 + dplen]),
+            })
 
-        extracted.append({
-            "event_num": ev.get("EventNum"),
-            "event_type": event_type,
-            "sha256": sha256_digest,
-            "device_path": device_path,
-            "event_data": event_data,
-        })
     return extracted
+
+
+def read_tpm2_pcr2_driver_events(eventlog_path: Path = DEFAULT_EVENTLOG_PATH) -> list[dict]:
+    """Read binary TPM2 eventlog and extract PCR 2 driver events."""
+    logging.info("Reading TPM2 binary eventlog from %s", eventlog_path)
+    data = read_eventlog_bytes(eventlog_path)
+    return parse_tpm2_pcr2_driver_events(data)
 
 
 def resolve_pci_device(device_path: str) -> Path | None:
@@ -406,8 +405,7 @@ def action_extract_devices(
     guid_file = custom_dir / "uuid.txt"
     owner_guid = get_or_create_guid(guid_file) if guid_file.is_file() else EFI_IMAGE_SECURITY_DATABASE_GUID
 
-    events = read_tpm2_eventlog(eventlog_path)
-    pcr2_events = extract_pcr2_driver_events(events)
+    pcr2_events = read_tpm2_pcr2_driver_events(eventlog_path)
 
     if not pcr2_events:
         logging.warning("No PCR 2 driver events found in TPM eventlog")
@@ -449,15 +447,12 @@ def action_extract_devices(
         if bdf:
             rom_path = firmware_dir / f"{base_name}.rom"
             efi_path = firmware_dir / f"{base_name}.efi"
-
-            if dump_pci_rom(bdf, rom_path):
-                if extract_gop_with_uefiextract(rom_path, efi_path):
-                    pe_hash = get_pe_authenticode_hash(efi_path)
-                    if pe_hash:
-                        if pe_hash.lower() == sha256.lower():
-                            logging.info("  [OK] GOP PE hash matches TPM2 eventlog: %s", pe_hash)
-                        else:
-                            logging.warning("  [MISMATCH] GOP PE hash (%s) != TPM2 log (%s)", pe_hash, sha256)
+            if dump_pci_rom(bdf, rom_path) and extract_gop_with_uefiextract(rom_path, efi_path):
+                pe_hash = get_pe_authenticode_hash(efi_path)
+                if pe_hash == sha256.lower():
+                    logging.info("  [OK] GOP PE hash matches TPM2 eventlog: %s", pe_hash)
+                else:
+                    logging.warning("  [MISMATCH] GOP PE hash (%s) != TPM2 log (%s)", pe_hash, sha256)
 
 
 # =====================================================================

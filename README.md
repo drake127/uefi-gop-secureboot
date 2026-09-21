@@ -81,10 +81,8 @@ Instead of trusting the broad Microsoft CA, UEFI allows whitelisting the **exact
 * **Hardware**: x86_64 UEFI motherboard with TPM 2.0 enabled in firmware (`/sys/kernel/security/tpm0/binary_bios_measurements`).
 * **Python 3.10+**: with dependencies from `requirements.txt` (`pip install -r requirements.txt`):
   * `cryptography`
-  * `pyyaml`
   * `argcomplete` (optional, for CLI tab-completion)
 * **System packages**:
-  * `tpm2-tools` (provides `tpm2_eventlog`)
   * `efitools` (provides `sign-efi-sig-list`, `sig-list-to-certs`)
   * `pesign` (provides Authenticode PE hashing `pesign -h -i`)
   * `cmake`, `make`, `gcc` (to compile the `tools/UEFIRomExtract` submodule)
