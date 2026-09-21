@@ -24,7 +24,7 @@ EFI_CERT_SHA256_GUID = uuid.UUID("c1c41626-504c-4092-aca9-41f936934328")
 EFI_IMAGE_SECURITY_DATABASE_GUID = uuid.UUID("605dab50-e046-4300-abb6-3dd810dd8b23")
 
 OUTPUT_DIR = Path("custom_config")
-KEY_TYPES = ("PK", "KEK", "db", "dbx")
+KEY_TYPES = ("PK", "KEK", "db")
 DEFAULT_VALIDITY_DAYS = 365 * 20
 
 
@@ -76,8 +76,8 @@ def hash_to_efi_sig_list(
     digests: list[bytes] = []
     for item in items:
         if isinstance(item, Path) or (isinstance(item, str) and Path(item).is_file()):
-            # EFI binary path: extract hash using hash-to-efi-sig-list
-            res = subprocess.run(["hash-to-efi-sig-list", str(item), "/dev/null"], capture_output=True, text=True, check=True)
+            cmd = ["hash-to-efi-sig-list", str(item), "/dev/null"]
+            res = subprocess.run(cmd, capture_output=True, text=True, check=True)
             match = re.search(r"HASH IS ([0-9a-fA-F]{64})", res.stdout)
             if not match:
                 raise ValueError(f"Could not extract hash from hash-to-efi-sig-list for {item}")
@@ -185,6 +185,11 @@ def generate_keys(
 
         logging.debug("Writing %s", esl_path)
         esl_path.write_bytes(cert_to_efi_sig_list(cert, guid))
+
+    dbx_esl = output_dir / "dbx.esl"
+    if not dbx_esl.is_file():
+        logging.info("Initializing empty %s", dbx_esl)
+        dbx_esl.touch()
 
 
 def parse_args() -> argparse.Namespace:

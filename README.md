@@ -10,11 +10,14 @@ A set of scripts to configure a custom UEFI Secure Boot key hierarchy (`PK`, `KE
 >
 > * **Symptom**: Black screen immediately upon powering on. No BIOS splash screen, no boot menu, and no video output.
 > * **Impact**: On desktop systems with CPUs lacking integrated graphics (e.g. AMD Ryzen desktop X-series, Intel F-series), you **will not be able to see or enter the BIOS Setup utility** to turn Secure Boot back off.
+> * **When does the GOP hash change? Always disable Secure Boot beforehand when**:
+>   * **Replacing or upgrading the graphics card** (a different GPU model or unit has a different firmware hash).
+>   * **Flashing a new vBIOS** to your existing graphics card.
+>   * **Updating the motherboard UEFI BIOS** (firmware updates can alter internal GOP blobs, iGPU drivers, or bus initialization).
 > * **Motherboard recovery behaviors differ significantly**:
 >   * **Gigabyte**: A CMOS reset (jumper or battery removal) **often does not** clear custom Secure Boot keys back to factory defaults. On these boards, recovery typically requires **Q-Flash Plus** (blind flashing the BIOS firmware using the motherboard's rear button and a formatted USB drive).
 >   * **ASUS**: Some boards detect failed GOP execution and automatically fall back to CSM (Compatibility Support Module), restoring display output.
 >   * **General rule**: Ensure you know how to perform a **headless BIOS reflash** (USB BIOS Flashback / Q-Flash Plus) for your specific motherboard model before enrolling custom keys.
-> * **Replacing your GPU**: **Always disable Secure Boot in the BIOS before swapping graphics cards**. A new or replacement card will have a different GOP firmware hash; booting with the new card while custom Secure Boot is active will result in a black screen.
 
 ---
 
@@ -110,7 +113,7 @@ Output files in `custom_config/`:
 * `PK.key`, `PK.crt`, `PK.cer`, `PK.esl`
 * `KEK.key`, `KEK.crt`, `KEK.cer`, `KEK.esl`
 * `db.key`, `db.crt`, `db.cer`, `db.esl`
-* `dbx.key`, `dbx.crt`, `dbx.cer`, `dbx.esl`
+* `dbx.esl` (initialized as empty revocation list)
 
 > [!NOTE]
 > The `custom_config/`, `firmware_config/`, and `signed_config/` directories are excluded from version control. Ensure you keep a secure offline backup of your private keys (`PK.key`, `KEK.key`).

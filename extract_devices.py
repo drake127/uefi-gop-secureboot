@@ -16,7 +16,6 @@ from generate_keys import hash_to_efi_sig_list, get_or_create_guid, OUTPUT_DIR, 
 FIRMWARE_DIR = Path("firmware_config")
 DEFAULT_EVENTLOG_PATH = Path("/sys/kernel/security/tpm0/binary_bios_measurements")
 TOOLS_DIR = Path(__file__).resolve().parent / "tools"
-UEFI_ROM_EXTRACT_BIN = TOOLS_DIR / "UEFIRomExtract" / "UEFIRomExtract"
 
 
 def run_cmd(cmd: list[str], check: bool = True, capture_output: bool = True) -> subprocess.CompletedProcess:

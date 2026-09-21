@@ -34,6 +34,8 @@ def merge_db_esl(custom_db_esl: Path, firmware_dir: Path, output_db_esl: Path) -
 
     if firmware_dir.is_dir():
         for item in sorted(firmware_dir.glob("*.esl")):
+            if item.is_symlink():
+                continue
             resolved = item.resolve()
             if resolved in seen_paths:
                 continue
