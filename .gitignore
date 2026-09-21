@@ -1,0 +1,5 @@
+__pycache__/
+
+custom_config/*
+firmware_config/*
+signed_config/*

@@ -1,0 +1,4 @@
+[submodule "tools/UEFIRomExtract"]
+	path = tools/UEFIRomExtract
+	url = https://github.com/ccharon/UEFIRomExtract.git
+	ignore = untracked
