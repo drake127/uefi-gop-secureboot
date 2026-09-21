@@ -76,7 +76,10 @@ Instead of trusting the broad Microsoft CA, UEFI allows whitelisting the **exact
 ## Prerequisites
 
 * **Hardware**: x86_64 UEFI motherboard with TPM 2.0 enabled in firmware (`/sys/kernel/security/tpm0/binary_bios_measurements`).
-* **Python 3.10+**: with `cryptography` and `pyyaml`.
+* **Python 3.10+**: with dependencies from `requirements.txt` (`pip install -r requirements.txt`):
+  * `cryptography`
+  * `pyyaml`
+  * `argcomplete` (optional, for CLI tab-completion)
 * **System packages**:
   * `tpm2-tools` (provides `tpm2_eventlog`)
   * `efitools` (provides `sign-efi-sig-list`, `hash-to-efi-sig-list`, `sig-list-to-certs`)
@@ -190,6 +193,7 @@ For detailed step-by-step instructions on putting your firmware into Setup Mode 
 ├── generate_keys.py       # Key and certificate generation script
 ├── sign_esl.py            # ESL merger & authentication update signer
 ├── .gitmodules            # Submodule configuration
+├── requirements.txt       # Python dependencies
 └── LICENSE                # GNU General Public License v3.0
 ```
 
